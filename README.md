@@ -1,3 +1,3 @@
-# SRaspberry Pi Zero W and ZeroCam Timelapse
+# Raspberry Pi Zero W and ZeroCam Timelapse
 
 Blah
