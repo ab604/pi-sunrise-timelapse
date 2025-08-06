@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 Sunrise Timelapse Script for Southampton, UK
-Created for Raspberry Pi Zero W and Zero Cam
+Created for Raspberry Pi Zero 2 W and Zero Cam
 Vibe coded by Claude. Prompted by Alistair Bailey
-2025-07-08
+2025-08-03
 """
 
 import os
@@ -64,7 +64,7 @@ CONFIG = {
     "video": {
         "output_duration_seconds": 30,  # 30-second final video
         "crf": 23,  # Good quality, reasonable file size
-        "preset": "ultrafast",  # Fast encoding for Pi Zero W
+        "preset": "ultrafast",  # Fast encoding for Pi Zero 2 W
     },
     "paths": {
         "base_dir": f'{os.path.expanduser("~")}/sunrise_timelapse',
@@ -76,7 +76,7 @@ CONFIG = {
 }
 
 class FixedBlueSkyClient:
-    """Bluesky client video service API"""
+    """FIXED Bluesky client using correct video service API"""
 
     def __init__(self):
         self.access_token = None
@@ -298,7 +298,7 @@ class FixedBlueSkyClient:
             with open(video_path, 'rb') as f:
                 video_data = f.read()
 
-            # URL parameters with both did and name
+            # Use the working approach: URL parameters with both did and name
             encoded_did = urllib.parse.quote(self.did, safe='')
             upload_url = f"{self.video_server}/xrpc/app.bsky.video.uploadVideo?did={encoded_did}&name=video.mp4"
 
@@ -338,7 +338,7 @@ class FixedBlueSkyClient:
                     print("❌ No job ID returned from upload")
                     return None
             elif response.status_code == 409:
-                # Video already exists
+                # Video already exists - this is actually good!
                 upload_result = response.json()
                 print(f"✅ Video already uploaded and processed!")
                 print(f"DEBUG: Existing video response: {json.dumps(upload_result, indent=2, default=str)}")
@@ -482,11 +482,16 @@ class SunriseTimelapse:
             if ASTRAL_VERSION == "new":
                 s = sun(self.location.observer, date=date)
                 sunrise_utc = s['sunrise']
-                sunrise_local = sunrise_utc.replace(tzinfo=None)
+                # Convert UTC to local timezone
+                import zoneinfo
+                local_tz = zoneinfo.ZoneInfo('Europe/London')
+                sunrise_local = sunrise_utc.astimezone(local_tz).replace(tzinfo=None)
             else:
-                # Older astral API (v1.x)
+                # Older astral API should handle this automatically
                 sunrise_utc = self.location.sunrise(date)
-                sunrise_local = sunrise_utc.replace(tzinfo=None)
+                import zoneinfo
+                local_tz = zoneinfo.ZoneInfo('Europe/London')
+                sunrise_local = sunrise_utc.astimezone(local_tz).replace(tzinfo=None)
 
             self.logger.info(f"Sunrise time for {date}: {sunrise_local.strftime('%H:%M:%S')}")
             return sunrise_local
@@ -756,26 +761,26 @@ class SunriseTimelapse:
             }
 
             data = {
-                "model": "llama-3.3-70b-versatile",
+                "model": "meta-llama/llama-4-scout-17b-16e-instruct",
                 "messages": [
                     {
                         "role": "user",
                         "content": [
                             {
                                 "type": "text",
-                                "text": "Describe the weather in this image in less than 250 characters. Start the text with: 'Dawn in Southampton'"
+                                "text": "Describe the weather in this image of dawn in Southampton in less than 250 characters. Start the text with: 'Dawn in Southampton and the weather is'",
                             },
                             {
                                 "type": "image_url",
                                 "image_url": {
                                     "url": f"data:image/jpeg;base64,{img_base64}"
-                                }
-                            }
-                        ]
+                                },
+                            },
+                        ],
                     }
                 ],
                 "max_tokens": 50,
-                "temperature": 0.3
+                "temperature": 0.3,
             }
 
             self.logger.info("Sending image to Groq for weather description...")
@@ -798,9 +803,9 @@ class SunriseTimelapse:
             self.logger.error(f"Error generating AI description: {e}")
 
         # Fallback description if API fails
-        return "This morning in Southampton the weather is looking beautiful for this sunrise timelapse! 🌅"
+        return "Dawn in Southampton. Again."
 
-    def post_to_bluesky(self, video_path, description):
+    def post_to_bluesky(self, video_path, description, sunrise_time):
         """Post video and description to Bluesky using FIXED video API"""
         bluesky_config = CONFIG['bluesky']
 
@@ -825,9 +830,9 @@ class SunriseTimelapse:
                 self.logger.error(f"Video too large for Bluesky: {size_mb:.1f}MB")
                 return False
 
-            self.logger.info(f"Uploading video ({size_mb:.1f}MB) to Bluesky using FIXED video API...")
+            self.logger.info(f"Uploading video ({size_mb:.1f}MB) to Bluesky using video API...")
 
-            # Upload video using video service
+            # Upload video using FIXED video service
             video_result = client.upload_video(video_path)
             if not video_result:
                 self.logger.error("Video upload failed")
@@ -835,8 +840,7 @@ class SunriseTimelapse:
 
             # Add date to description
             today_formatted = datetime.date.today().strftime('%Y-%m-%d')  # e.g., "2025-06-01"
-            description_with_date = f"{description}\n\n{today_formatted}"
-
+            description_with_date = f"{description}\n\nSunrise: {sunrise_time.strftime('%H:%M:%S')} {today_formatted}"
             self.logger.info("Creating post with video...")
             post_result = client.create_post_with_video(
                 text=description_with_date,
@@ -919,7 +923,7 @@ class SunriseTimelapse:
 
 def main():
     """Main function to run the sunrise timelapse"""
-    print("Southampton Sunrise Timelapse (Video Method) - FIXED VERSION")
+    print("Southampton Sunrise Timelapse (Video Method)")
     print("=============================================================")
     print("✅ All bugs fixed: testing code removed, timeouts added, exception handling fixed")
 
@@ -935,7 +939,7 @@ def main():
         print(f"Capture duration: {CONFIG['capture']['duration_minutes']} minutes")
         print(f"Method: Continuous video at {CONFIG['capture']['framerate']}fps")
         print(f"Final video: {CONFIG['video']['output_duration_seconds']} seconds")
-        print(f"Bluesky upload: Using FIXED video.bsky.app API")
+        print(f"Bluesky upload: Using video.bsky.app API")
         print()
 
         # Capture sunrise as video
@@ -961,8 +965,8 @@ def main():
             # Post to Bluesky immediately when video is ready
             timelapse.logger.info("Video processing complete, posting to Bluesky now...")
 
-            # Post to Bluesky using video API
-            posted = timelapse.post_to_bluesky(final_video_path, description)
+            # Post to Bluesky using FIXED video API
+            posted = timelapse.post_to_bluesky(final_video_path, description,sunrise_time)
 
             # Clean up old files
             timelapse.cleanup_old_files()
