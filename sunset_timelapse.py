@@ -697,22 +697,25 @@ class sunsetTimelapse:
             self.logger.error(f"FFmpeg error: {e.stderr}")
             return None
 
-    def take_photo_after_video(self):
-        """Take a fresh photo after video recording for weather analysis"""
+    def extract_frame_from_video(self, video_path, timestamp_seconds=14):
+        """Extract a frame from the final timelapse video at specified timestamp"""
+        if not video_path or not video_path.exists():
+            self.logger.error("No video file to extract frame from")
+            return None
+
         today = datetime.date.today().strftime("%Y-%m-%d")
-        photo_path = Path(CONFIG["paths"]["raw_dir"]) / f"analysis_photo_{today}.jpg"
+        frame_path = Path(CONFIG["paths"]["raw_dir"]) / f"analysis_frame_{today}.jpg"
 
-        self.logger.info("📸 Taking fresh photo for weather analysis...")
+        self.logger.info(f"🎬 Extracting frame at {timestamp_seconds}s from video for analysis...")
 
+        # FFmpeg command to extract frame at specific timestamp
         cmd = [
-            'libcamera-still',
-            '--width', '800',
-            '--height', '800',
-            '--ev', '0.5',
-            '--quality', '90',
-            '--timeout', '2000',  # 2 second delay for auto-exposure
-            '--nopreview',
-            '-o', str(photo_path)
+            'ffmpeg', '-y',  # -y to overwrite existing file
+            '-i', str(video_path),
+            '-ss', str(timestamp_seconds),  # Seek to timestamp
+            '-vframes', '1',  # Extract only 1 frame
+            '-q:v', '2',  # High quality (low value = high quality)
+            str(frame_path)
         ]
 
         try:
@@ -724,22 +727,66 @@ class sunsetTimelapse:
                 timeout=30
             )
 
-            if photo_path.exists() and photo_path.stat().st_size > 10000:
-                self.logger.info(f"✅ Analysis photo taken: {photo_path}")
-                return photo_path
+            if frame_path.exists() and frame_path.stat().st_size > 10000:
+                self.logger.info(f"✅ Analysis frame extracted: {frame_path}")
+                return frame_path
             else:
-                self.logger.warning("Photo file not created or too small")
+                self.logger.warning("Frame file not created or too small")
                 return None
 
         except subprocess.TimeoutExpired:
-            self.logger.warning("Photo capture timed out")
+            self.logger.warning("Frame extraction timed out")
             return None
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Photo capture failed: {e.stderr}")
+            self.logger.error(f"Frame extraction failed: {e.stderr}")
             return None
         except Exception as e:
-            self.logger.error(f"Error taking photo: {e}")
+            self.logger.error(f"Error extracting frame: {e}")
             return None
+
+    # def take_photo_after_video(self):
+    #     """Take a fresh photo after video recording for weather analysis"""
+    #     today = datetime.date.today().strftime("%Y-%m-%d")
+    #     photo_path = Path(CONFIG["paths"]["raw_dir"]) / f"analysis_photo_{today}.jpg"
+
+    #     self.logger.info("📸 Taking fresh photo for weather analysis...")
+
+    #     cmd = [
+    #         'libcamera-still',
+    #         '--width', '800',
+    #         '--height', '800',
+    #         '--ev', '0.5',
+    #         '--quality', '90',
+    #         '--timeout', '2000',  # 2 second delay for auto-exposure
+    #         '--nopreview',
+    #         '-o', str(photo_path)
+    #     ]
+
+    #     try:
+    #         result = subprocess.run(
+    #             cmd,
+    #             check=True,
+    #             capture_output=True,
+    #             text=True,
+    #             timeout=30
+    #         )
+
+    #         if photo_path.exists() and photo_path.stat().st_size > 10000:
+    #             self.logger.info(f"✅ Analysis photo taken: {photo_path}")
+    #             return photo_path
+    #         else:
+    #             self.logger.warning("Photo file not created or too small")
+    #             return None
+
+    #     except subprocess.TimeoutExpired:
+    #         self.logger.warning("Photo capture timed out")
+    #         return None
+    #     except subprocess.CalledProcessError as e:
+    #         self.logger.error(f"Photo capture failed: {e.stderr}")
+    #         return None
+    #     except Exception as e:
+    #         self.logger.error(f"Error taking photo: {e}")
+    #         return None
 
     def generate_ai_description(self, image_path):
         """Generate weather description using Groq Vision API"""
@@ -894,23 +941,34 @@ class sunsetTimelapse:
                 pass
 
         # Clean analysis photos
-        for item in raw_dir.glob("analysis_photo_*.jpg"):
+        # for item in raw_dir.glob("analysis_photo_*.jpg"):
+        #     try:
+        #         date_str = item.stem.replace('analysis_photo_', '')
+        #         item_date = datetime.datetime.strptime(date_str, '%Y-%m-%d').date()
+        #         if item_date < cutoff_date:
+        #             item.unlink()
+        #             self.logger.info(f"Removed old photo: {item.name}")
+        #     except ValueError:
+        #         pass
+
+        # Clean analysis frames
+        for item in raw_dir.glob("analysis_frame_*.jpg"):
             try:
-                date_str = item.stem.replace('analysis_photo_', '')
-                item_date = datetime.datetime.strptime(date_str, '%Y-%m-%d').date()
+                date_str = item.stem.replace("analysis_frame_", "")
+                item_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
                 if item_date < cutoff_date:
                     item.unlink()
-                    self.logger.info(f"Removed old photo: {item.name}")
+                    self.logger.info(f"Removed old frame: {item.name}")
             except ValueError:
                 pass
 
         # Clean final videos
-        video_dir = Path(CONFIG['paths']['video_dir'])
+        video_dir = Path(CONFIG["paths"]["video_dir"])
         removed_videos = 0
         for item in video_dir.glob("sunset_*.mp4"):
             try:
-                date_str = item.stem.replace('sunset_', '')
-                item_date = datetime.datetime.strptime(date_str, '%Y-%m-%d').date()
+                date_str = item.stem.replace("sunset_", "")
+                item_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
                 if item_date < cutoff_date:
                     item.unlink()
                     removed_videos += 1
@@ -919,7 +977,9 @@ class sunsetTimelapse:
                 pass
 
         if removed_raw > 0 or removed_videos > 0:
-            self.logger.info(f"Cleanup complete: {removed_raw} raw videos, {removed_videos} final videos removed")
+            self.logger.info(
+                f"Cleanup complete: {removed_raw} raw videos, {removed_videos} final videos removed"
+            )
 
 def main():
     """Main function to run the sunset timelapse"""
@@ -953,14 +1013,22 @@ def main():
         final_video_path = timelapse.create_timelapse_from_video(raw_video_path)
 
         if final_video_path and final_video_path.exists():
-            # Take fresh photo for weather analysis
-            analysis_photo = timelapse.take_photo_after_video()
+            # Extract frame from video for weather analysis
+            analysis_frame = timelapse.extract_frame_from_video(final_video_path, timestamp_seconds=14)
 
             # Generate weather description
-            if analysis_photo:
-                description = timelapse.generate_ai_description(analysis_photo)
+            if analysis_frame:
+                description = timelapse.generate_ai_description(analysis_frame)
             else:
                 description = "Southampton, and the weather is looking beautiful for this sunset timelapse! 🌅"
+            # Take fresh photo for weather analysis
+            # analysis_photo = timelapse.take_photo_after_video()
+#
+            # Generate weather description
+            # if analysis_photo:
+                # description = timelapse.generate_ai_description(analysis_photo)
+            # else:
+                # description = "Southampton, and the weather is looking beautiful for this sunset timelapse! 🌅"
 
             # Post to Bluesky immediately when video is ready
             timelapse.logger.info("Video processing complete, posting to Bluesky now...")
