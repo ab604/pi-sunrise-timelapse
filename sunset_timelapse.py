@@ -840,7 +840,7 @@ class sunsetTimelapse:
 
             # Add date to description
             today_formatted = datetime.date.today().strftime('%Y-%m-%d')  # e.g., "2025-06-01"
-            description_with_date = f"{description}\n\nsunset: {sunset_time.strftime('%H:%M:%S')} {today_formatted}"
+            description_with_date = f"{description}\n\nSunset: {sunset_time.strftime('%H:%M:%S')} {today_formatted}"
             self.logger.info("Creating post with video...")
             post_result = client.create_post_with_video(
                 text=description_with_date,
